@@ -3,21 +3,26 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.deps import close_redis, init_redis
+from app.api.v1.pages import router as pages_router
 from app.api.v1.router import router as api_v1_router
 from app.core.config import settings
 from app.db.session import dispose_engine
 
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 @asynccontextmanager
@@ -44,6 +49,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.state.templates = Jinja2Templates(
+    directory=str(PROJECT_ROOT / "templates")
+)
+app.mount(
+    "/static",
+    StaticFiles(directory=str(PROJECT_ROOT / "static")),
+    name="static",
 )
 
 
@@ -91,3 +105,4 @@ async def unhandled_exception_handler(
 
 
 app.include_router(api_v1_router, prefix=settings.api_v1_prefix)
+app.include_router(pages_router)

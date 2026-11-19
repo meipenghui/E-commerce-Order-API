@@ -29,6 +29,7 @@ from app.services.order import (
     cancel_order,
     create_order,
     get_order_by_no,
+    list_orders_for_user,
 )
 from app.tasks.order_timeout import cancel_unpaid_order_task
 from app.utils.cache import (
@@ -120,6 +121,19 @@ async def create_order_endpoint(
     else:
         response.status_code = status.HTTP_200_OK
     return result.order
+
+
+@router.get(
+    "/",
+    response_model=list[OrderOut],
+    summary="List the current user's orders",
+)
+async def list_orders_endpoint(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[Order]:
+    """Return all orders belonging to the authenticated user."""
+    return await list_orders_for_user(db, current_user.id)
 
 
 @router.get(

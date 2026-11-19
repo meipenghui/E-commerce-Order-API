@@ -1,8 +1,8 @@
 # E-commerce Order API
 
-一个基于 FastAPI 的异步电商订单后端示例项目，覆盖用户认证、商品与 SKU、订单创建、库存锁定、模拟支付、订单查询缓存以及超时自动关单等完整流程。
+一个基于 FastAPI 的异步电商订单示例项目，包含服务端渲染 Web 前端，覆盖用户认证、商品与 SKU、订单创建、库存锁定、模拟支付、订单查询缓存以及超时自动关单等完整流程。
 
-项目重点展示以下后端能力：
+项目重点展示以下能力：
 
 - FastAPI + Pydantic v2 的异步 API 设计
 - SQLAlchemy 2.x AsyncSession + PostgreSQL
@@ -11,6 +11,8 @@
 - Celery 延迟任务与异步通知
 - 原子库存扣减、支付确认和库存释放
 - Docker Compose 多服务编排
+- Jinja2 + 原生 HTML/JS/CSS Web 前端
+- Tailwind CSS CDN，无需 Node.js 或 npm 构建
 - Windows 环境下的 Celery Worker 运行方式
 
 ## 技术栈
@@ -20,6 +22,8 @@
 | Python | 3.11 - 3.13 |
 | Web 框架 | FastAPI |
 | 数据校验 | Pydantic v2 / pydantic-settings |
+| 页面模板 | Jinja2 |
+| 前端样式 | 原生 CSS + Tailwind CSS CDN |
 | ORM | SQLAlchemy 2.x Async ORM |
 | 数据库驱动 | asyncpg |
 | 数据库 | PostgreSQL 16 |
@@ -68,10 +72,20 @@
 
 - `GET /api/v1/health` 同时检查 PostgreSQL 和 Redis 连接。
 
+### Web 前端
+
+- 使用 FastAPI `Jinja2Templates` 渲染页面，不引入 React/Vue。
+- Tailwind CSS 通过 CDN 加载，无需 Node.js 或 npm 构建。
+- JWT 保存在浏览器 `localStorage`，统一请求函数自动附加 Bearer Token。
+- 遇到受保护接口返回 `401` 时自动清理 Token 并跳转登录页。
+- 商品页直接渲染商品、SKU、价格与库存，并支持选择数量后下单。
+- 点击“立即购买”时自动生成 UUID 作为 `X-Idempotency-Key`。
+- 订单页支持查看状态、模拟支付和取消待支付订单。
+
 ## 系统架构
 
 ```text
-Client / Swagger UI
+浏览器页面 / Swagger UI
         |
         v
    FastAPI API ---------------------> PostgreSQL
@@ -164,6 +178,7 @@ e-commerce_project/
 │   │   └── v1/
 │   │       ├── auth.py          # 注册、登录、当前用户
 │   │       ├── orders.py        # 订单创建、查询、取消
+│   │       ├── pages.py         # Jinja2 页面路由
 │   │       ├── payments.py      # 模拟支付回调
 │   │       ├── products.py      # 商品与 SKU
 │   │       └── router.py        # v1 路由聚合、健康检查
@@ -185,6 +200,18 @@ e-commerce_project/
 │   ├── utils/
 │   │   └── cache.py             # JSON 缓存工具
 │   └── main.py                  # FastAPI 应用入口
+├── templates/                   # Jinja2 页面模板
+│   ├── base.html                # 共享页面骨架和导航
+│   ├── login.html               # 登录与注册
+│   ├── products.html            # 商品列表
+│   └── orders.html              # 我的订单
+├── static/                      # 原生前端静态资源
+│   ├── css/style.css
+│   └── js/
+│       ├── common.js            # fetchApi、认证与 Toast 工具
+│       ├── login.js
+│       ├── products.js
+│       └── orders.js
 ├── alembic/                     # 数据库迁移
 ├── tests/                       # pytest 测试目录
 ├── .env.example                 # 环境变量示例
@@ -208,6 +235,7 @@ e-commerce_project/
 | `GET` | `/products/` | 无 | 分页查询商品 |
 | `GET` | `/products/{product_id}` | 无 | 查询商品详情 |
 | `POST` | `/orders/` | Bearer | 创建订单，需 `X-Idempotency-Key` |
+| `GET` | `/orders/` | Bearer | 查询当前用户的订单列表 |
 | `GET` | `/orders/{order_no}` | Bearer | 查询订单，仅本人或管理员 |
 | `DELETE` | `/orders/{order_no}` | Bearer | 取消待支付订单 |
 | `POST` | `/payments/callback` | 无 | 模拟支付成功回调 |
@@ -215,9 +243,93 @@ e-commerce_project/
 
 启动服务后可访问：
 
+- Web 首页：`http://localhost:8000/`
 - Swagger UI：`http://localhost:8000/docs`
 - ReDoc：`http://localhost:8000/redoc`
 - OpenAPI JSON：`http://localhost:8000/openapi.json`
+
+浏览器页面路由：
+
+| 路径 | 说明 |
+| --- | --- |
+| `/` | 跳转到登录页；已登录用户由前端转至商品页 |
+| `/login` | 登录与注册页面 |
+| `/products` | 商品列表与立即购买 |
+| `/orders` | 当前用户的订单列表与支付/取消操作 |
+
+## Web 前端页面
+
+前端采用服务端模板与原生浏览器脚本组合，不依赖 Node.js、npm、React 或 Vue 构建链：
+
+- FastAPI 负责页面路由和 Jinja2 模板渲染。
+- Tailwind CSS 通过 `https://cdn.tailwindcss.com` 加载。
+- 业务数据全部通过现有 `/api/v1` 接口异步获取。
+- 页面级 CSS 位于 `static/css/style.css`，仅补充表单、Toast、加载骨架等自定义样式。
+
+### 页面与资源职责
+
+| 文件 | 说明 |
+| --- | --- |
+| `templates/base.html` | 共享页面骨架、顶部导航、通用 Toast 容器 |
+| `templates/login.html` | 登录与注册双表单页面 |
+| `templates/products.html` | 商品、SKU、价格、库存与购买入口 |
+| `templates/orders.html` | 当前用户订单列表、支付和取消操作 |
+| `static/css/style.css` | 表单、按钮、Toast、骨架屏和卡片动效 |
+| `static/js/common.js` | `fetchApi`、Token、401 跳转、Toast、格式化工具 |
+| `static/js/login.js` | 登录、注册、自动登录与页面跳转 |
+| `static/js/products.js` | 商品加载、数量选择、UUID 幂等下单 |
+| `static/js/orders.js` | 订单加载、状态渲染、模拟支付和取消订单 |
+| `app/api/v1/pages.py` | `/login`、`/products`、`/orders` 页面路由 |
+
+### 前端认证机制
+
+登录成功后，`/api/v1/login` 返回的 JWT 会写入：
+
+```text
+localStorage.ecommerce_access_token
+```
+
+所有受保护请求通过 `fetchApi(url, options)` 自动添加：
+
+```http
+Authorization: Bearer <token>
+```
+
+如果接口返回 `401`，前端会自动清除本地 Token，并携带当前页面地址跳转到 `/login?next=...`。登录成功后返回原页面或商品页。
+
+### 前端使用流程
+
+1. 打开 `http://localhost:8000/`，未登录时进入 `/login`。
+2. 注册新用户或使用已有账号登录。
+3. 登录后进入 `/products`，查看商品、SKU 价格和可用库存。
+4. 选择购买数量并点击“立即购买”。
+5. 前端生成 UUID 幂等键，请求 `POST /api/v1/orders/`。
+6. 下单成功后跳转到 `/orders`。
+7. 待支付订单可以点击“去支付”调用模拟支付回调，或点击“取消订单”释放库存。
+8. 已支付、已取消订单不再显示操作按钮。
+
+### 前端依赖与构建
+
+前端新增运行时依赖：
+
+```text
+jinja2>=3.1,<4.0
+```
+
+它已加入：
+
+- `requirements.txt`
+- `requirements-dev.txt`（通过 `-r requirements.txt` 继承）
+- `pyproject.toml`
+
+`Dockerfile` 会将模板和静态资源复制进镜像：
+
+```dockerfile
+COPY templates ./templates
+COPY static ./static
+```
+
+由于本地开发通过 `.:/app` 挂载代码，修改 HTML、CSS、JS 后刷新浏览器即可看到变化。修改 Python 页面路由或依赖后需要重启 API。
 
 ## 快速启动：Docker Compose
 
@@ -238,6 +350,8 @@ JWT_SECRET_KEY=请替换为至少32个字符的随机字符串
 ### 2. 构建镜像
 
 `api` 和 `worker` 使用同一个镜像标签 `ecommerce-order-api:latest`。只构建一次即可：
+
+前端模板、静态资源、Jinja2 依赖或 Dockerfile 变更后，也需要重新执行此构建命令。
 
 ```powershell
 docker compose build api
@@ -318,6 +432,12 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements-dev.txt
+```
+
+`requirements-dev.txt` 会间接安装 Jinja2；如果只安装运行依赖，请执行：
+
+```powershell
+pip install -r requirements.txt
 ```
 
 ### 2. 准备环境变量
@@ -748,6 +868,42 @@ docker compose restart worker
 docker compose up -d --force-recreate api worker
 ```
 
+### 页面提示模板或 Jinja2 相关错误
+
+确认依赖已安装：
+
+```powershell
+pip install -r requirements.txt
+```
+
+如果使用 Docker，则需要重新构建镜像，而不是只重启旧容器：
+
+```powershell
+docker compose build api
+docker compose up -d --force-recreate api worker
+```
+
+### 页面没有 Tailwind 样式
+
+Tailwind CSS 通过公网 CDN 加载。请确认浏览器能够访问：
+
+```text
+https://cdn.tailwindcss.com
+```
+
+离线环境需要自行下载 Tailwind 构建产物或改用本地静态 CSS。
+
+### 登录后仍反复跳回登录页
+
+检查浏览器 `localStorage` 中是否存在 `ecommerce_access_token`。Token 过期、被清除或后端 `JWT_SECRET_KEY` 发生变化后，需要重新登录。
+
+### 商品页正常但无法下单
+
+- 未登录时会跳转登录页。
+- 需要商品和 SKU 处于可用状态。
+- SKU 可用库存必须大于 0。
+- 检查 API 日志中的库存不足或幂等键错误。
+
 ## 开发与生产注意事项
 
 - 当前支付回调为开发模拟实现，没有校验第三方签名，不应直接用于生产。
@@ -755,6 +911,7 @@ docker compose up -d --force-recreate api worker
 - Docker Compose 中的 Redis 未配置密码，仅适合本地开发。
 - Cache-Aside 提供最终一致性；在极端并发窗口下仍可能短时间读取旧缓存，TTL 是兜底保护。
 - Worker 容器固定使用 `solo` 池，稳定性较高但并发能力有限；生产环境可根据平台和负载调整部署拓扑。
+- Tailwind CSS 当前通过 CDN 引入，适合演示和开发；生产环境建议改为本地编译后的 CSS 文件。
 - 生产环境必须替换 `JWT_SECRET_KEY`，并启用 HTTPS、限流、审计和更严格的支付验签。
 
 ## License

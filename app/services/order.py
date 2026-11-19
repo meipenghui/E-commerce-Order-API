@@ -160,6 +160,23 @@ async def get_order_by_no(
     )
 
 
+async def list_orders_for_user(
+    session: AsyncSession,
+    user_id: int,
+) -> list[Order]:
+    """Return a user's orders with items and status logs eager-loaded."""
+    result = await session.scalars(
+        select(Order)
+        .options(
+            selectinload(Order.items),
+            selectinload(Order.status_logs),
+        )
+        .where(Order.user_id == user_id)
+        .order_by(Order.created_at.desc(), Order.id.desc())
+    )
+    return list(result.all())
+
+
 async def _resolve_existing_order(
     session: AsyncSession,
     redis: Redis,
